@@ -2,7 +2,7 @@ pipeline {
   agent any
 
   environment {
-    // Visible defaults; real secrets are injected via withCredentials
+    // Visible defaults; actual secrets injected by withCredentials
     AEGIS_API_KEY = ""
     CONFIG_API_URL = ""
   }
@@ -23,11 +23,18 @@ pipeline {
     stage('Checkout') {
       steps {
         // Full clone (no shallow)
-        checkout([$class: 'GitSCM',
-                  branches: scm.branches ?: [[name: '*/main']],
-                  userRemoteConfigs: scm.userRemoteConfigs,
-                  extensions: [[$class: 'CloneOption', depth: 0, noTags: false, reference: '', shallow: false]]
-        ])
+        script {
+          // Use scm if available, otherwise fallback to default checkout
+          if (binding.hasVariable('scm') && scm) {
+            checkout([$class: 'GitSCM',
+                      branches: scm.branches ?: [[name: '*/main']],
+                      userRemoteConfigs: scm.userRemoteConfigs,
+                      extensions: [[$class: 'CloneOption', depth: 0, noTags: false, reference: '', shallow: false]]
+            ])
+          } else {
+            checkout scm
+          }
+        }
       }
     }
 
@@ -53,7 +60,7 @@ pipeline {
 
     stage('Set up Docker Buildx') {
       steps {
-        sh 'docker buildx version || (docker buildx create --use && docker buildx version)'
+        sh 'docker buildx version || (docker buildx create --use && docker buildx version) || true'
       }
     }
 
@@ -67,11 +74,10 @@ pipeline {
             set -euo pipefail
             mkdir -p results
             echo "Pulling Aegis image..."
-            docker pull playerunknown23/aegis:latest
+            docker pull playerunknown23/aegis:latest || true
 
             echo "Running Aegis scanner container..."
-            # capture exit code to handle quality gate without stopping pipeline immediately
-            SCANNER_EXIT=0 || true
+            SCANNER_EXIT=0
             docker run --rm \
               -v "${WORKSPACE}:/app/target:ro" \
               -v "${WORKSPACE}/results:/app/results:rw" \
@@ -79,14 +85,14 @@ pipeline {
               -e CONFIG_API_URL="${CONFIG_API_URL}" \
               -e GITHUB_REPOSITORY="${JOB_NAME}" \
               -e GITHUB_REF="${BRANCH_NAME:-unknown-ref}" \
-              -e GITHUB_SHA="${GIT_COMMIT?:unknown-sha}" \
+              -e GITHUB_SHA="${GIT_COMMIT:-unknown-sha}" \
               playerunknown23/aegis:latest \
               /app/target \
               --api-key "${AEGIS_API_KEY}" \
               ${CONFIG_API_URL:+--config-api-url "${CONFIG_API_URL}"} \
               --parallel || SCANNER_EXIT=$?
             echo "Aegis exit code: $SCANNER_EXIT"
-            # leave files in results/ regardless of exit code
+            # exit with same scanner exit code (so pipeline reflects scanner outcome)
             exit $SCANNER_EXIT
           '''
         }
@@ -95,26 +101,38 @@ pipeline {
 
     stage('Create summary & show on console') {
       steps {
-        sh '''
-          set -euo pipefail
-          SUMMARY_FILE=$(ls results/scan_summary_*.json 2>/dev/null | head -n1 || true)
-          if [ -n "$SUMMARY_FILE" ]; then
-            echo "---- Aegis scan summary (from $SUMMARY_FILE) ----"
-            cat "$SUMMARY_FILE" | jq -r '
-              "**Summary:**\n" +
-              "- Packages Found (SBOM): \(.summary.packages_found)\n" +
-              "- Vulnerabilities in Packages (SCA): \(.summary.vulnerabilities_in_packages)\n" +
-              "- Secrets Found: \(.summary.secrets_found)\n" +
-              "- Code Vulnerabilities: \(.summary.code_vulnerabilities)\n" +
-              "\n**Severity Breakdown:**\n" +
-              "- Critical: \(.summary.critical_severity)\n" +
-              "- High: \(.summary.high_severity)\n" +
-              "- Medium: \(.summary.medium_severity)\n" +
-              "- Low: \(.summary.low_severity)\n"
-          else
+        script {
+          // find first summary file if present
+          def summaryFile = sh(script: "ls results/scan_summary_*.json 2>/dev/null | head -n1 || true", returnStdout: true).trim()
+          if (summaryFile) {
+            echo "---- Aegis scan summary (from ${summaryFile}) ----"
+            def summary = readJSON file: summaryFile
+
+            echo "**Summary:**"
+            echo "- Packages Found (SBOM): ${summary.summary?.packages_found ?: 'N/A'}"
+            echo "- Vulnerabilities in Packages (SCA): ${summary.summary?.vulnerabilities_in_packages ?: 'N/A'}"
+            echo "- Secrets Found: ${summary.summary?.secrets_found ?: 'N/A'}"
+            echo "- Code Vulnerabilities: ${summary.summary?.code_vulnerabilities ?: 'N/A'}"
+            echo ""
+            echo "**Severity Breakdown:**"
+            echo "- Critical: ${summary.summary?.critical_severity ?: 0}"
+            echo "- High: ${summary.summary?.high_severity ?: 0}"
+            echo "- Medium: ${summary.summary?.medium_severity ?: 0}"
+            echo "- Low: ${summary.summary?.low_severity ?: 0}"
+
+            if (summary.metadata?.quality_gate_passed != null) {
+              if (summary.metadata.quality_gate_passed.toString() == 'true') {
+                echo "Quality Gate: PASSED"
+              } else {
+                echo "Quality Gate: FAILED"
+                def reasons = summary.metadata.quality_gate_reasons ?: []
+                reasons.each { echo "- ${it}" }
+              }
+            }
+          } else {
             echo "No scan_summary_*.json found in results/ — skipping summary print."
-          fi
-        '''
+          }
+        }
       }
     }
   }
@@ -123,9 +141,9 @@ pipeline {
     always {
       archiveArtifacts artifacts: 'results/**', fingerprint: true
       script {
-        def summaryFiles = sh(script: "ls results/scan_summary_*.json 2>/dev/null | head -n1 || true", returnStdout: true).trim()
-        if (summaryFiles) {
-          def summary = readJSON file: summaryFiles
+        def summaryFile = sh(script: "ls results/scan_summary_*.json 2>/dev/null | head -n1 || true", returnStdout: true).trim()
+        if (summaryFile) {
+          def summary = readJSON file: summaryFile
           if (summary?.metadata?.quality_gate_passed != null) {
             if (summary.metadata.quality_gate_passed.toString() == 'true') {
               echo "Quality Gate: PASSED"
