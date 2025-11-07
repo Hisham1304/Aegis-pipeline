@@ -25,9 +25,18 @@ security-scan:
       when: on_success
     - when: manual   # allows manual trigger in UI
   before_script:
-    # run as root inside the job; apt is available in this image
-    - apt-get update -qq
-    - apt-get install -y -qq jq
+    # install jq in a portable way (detect package manager)
+    - |
+      if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -qq && apt-get install -y -qq jq
+      elif command -v apk >/dev/null 2>&1; then
+        apk update && apk add --no-cache jq
+      elif command -v yum >/dev/null 2>&1; then
+        yum install -y -q jq
+      else
+        echo "No known package manager (apt-get/apk/yum) found — please use an image with jq preinstalled"
+        exit 1
+      fi
     - docker version
     - mkdir -p results
   script:
