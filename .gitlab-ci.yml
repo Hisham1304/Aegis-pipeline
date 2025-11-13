@@ -51,4 +51,3 @@ security-scan:
       - results/
     expire_in: 30 days
     when: always
-  allow_failure: false
