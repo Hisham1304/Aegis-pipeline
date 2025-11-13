@@ -1,53 +1,37 @@
-# .gitlab-ci.yml - Aegis Security Scan
-stages:
-  - scan
-
-# Global variables for Docker-in-Docker
-variables:
-  # Make docker:dind accessible without TLS (common pattern for GitLab CI)
-  DOCKER_TLS_CERTDIR: ""
-  # Use the DinD service address
-  DOCKER_HOST: tcp://docker:2375
-  # Optional performance tuning
-  DOCKER_DRIVER: overlay2
-
 security-scan:
   stage: scan
-  image: docker:24.0.5              # provides docker client (runs as root in job)
+  image: docker:24.0.5
   services:
-    - name: docker:24.0.5-dind      # Docker daemon (DinD) service container
+    - name: docker:24.0.5-dind
       alias: docker
-  # run on pushes to main/develop, allow manual trigger, and run on merge requests to main
+  variables:
+    AEGIS_API_KEY: "aegis_LJvDFv7nhDBxNOac7AcWJoVoR9T79t6A"
+    CONFIG_API_URL: "https://config-api-mja3.onrender.com/"
   rules:
     - if: $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop")
       when: on_success
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
       when: on_success
-    - when: manual   # allows manual trigger in UI
+    - when: manual
   before_script:
     - mkdir -p results
   script:
     - echo "=== Pulling Aegis image ==="
     - docker pull playerunknown23/aegis:latest || true
-
     - echo "=== Running Aegis scanner ==="
     - |
+      set -euo pipefail
+      # compute config arg in same shell
+      if [ -n "${CONFIG_API_URL:-}" ]; then CONFIG_ARG="--config-api-url=${CONFIG_API_URL}"; else CONFIG_ARG=""; fi
       docker run --rm \
         -v "$CI_PROJECT_DIR":/app/target:ro \
         -v "$CI_PROJECT_DIR/results":/app/results:rw \
         -e AEGIS_API_KEY="$AEGIS_API_KEY" \
         -e CONFIG_API_URL="$CONFIG_API_URL" \
-        -e GITLAB_PROJECT="$CI_PROJECT_PATH" \
-        -e GITLAB_REF="$CI_COMMIT_REF_NAME" \
-        -e GITLAB_SHA="$CI_COMMIT_SHA" \
         playerunknown23/aegis:latest \
-        /app/target \
-        --api-key "$AEGIS_API_KEY" \
-        ${CONFIG_API_URL:+--config-api-url "$CONFIG_API_URL"} \
-        --parallel
+        /app/target --api-key "$AEGIS_API_KEY" $CONFIG_ARG --parallel
   artifacts:
-    name: "security-scan-results-$CI_COMMIT_SHORT_SHA"
     paths:
       - results/
-    expire_in: 30 days
     when: always
+
