@@ -16,7 +16,7 @@ security-scan:
       alias: docker
   variables:
     # *** DANGEROUS: credentials in repo (temporary only) ***
-    AEGIS_API_KEY: "aegis_demo_key_5a764f7c5006d71d-REPLACE_WITH_REAL"
+    AEGIS_API_KEY: "aegis_LJvDFv7nhDBxNOac7AcWJoVoR9T79t6A"
     CONFIG_API_URL: "https://config-api-mja3.onrender.com/"
   rules:
     - if: $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop")
