@@ -43,15 +43,3 @@ security-scan:
         --api-key "$AEGIS_API_KEY" \
         ${CONFIG_API_URL:+--config-api-url "$CONFIG_API_URL"} \
         --parallel
-
-    
-       
-        echo "No scan_summary_*.json found in results/ — skipping summary"
-      fi
-  artifacts:
-    name: "security-scan-results-$CI_COMMIT_SHORT_SHA"
-    paths:
-      - results/
-    expire_in: 30 days
-    when: always
-  allow_failure: false
