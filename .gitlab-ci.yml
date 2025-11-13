@@ -1,101 +1,41 @@
-# .gitlab-ci.yml - Aegis Security Scan
 stages:
   - scan
 
-# Global variables for Docker-in-Docker
 variables:
-  # Make docker:dind accessible without TLS (common pattern for GitLab CI)
-  DOCKER_TLS_CERTDIR: ""
-  # Use the DinD service address
-  DOCKER_HOST: tcp://docker:2375
-  # Optional performance tuning
-  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""            # required when using docker:dind in GitLab CI
+  DOCKER_HOST: "tcp://docker:2375"  # use the DinD service
+  DOCKER_DRIVER: "overlay2"       # optional tuning
 
-security-scan:
+aegis_minimal_scan:
   stage: scan
-  image: docker:24.0.5              # provides docker client (runs as root in job)
+  image: docker:24.0.5
   services:
-    - name: docker:24.0.5-dind      # Docker daemon (DinD) service container
+    - name: docker:24.0.5-dind
       alias: docker
-  # run on pushes to main/develop, allow manual trigger, and run on merge requests to main
   rules:
-    - if: $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop")
+    - if: $CI_PIPELINE_SOURCE == "push"
       when: on_success
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
-      when: on_success
-    - when: manual   # allows manual trigger in UI
-  before_script:
-    # install jq in a portable way (detect package manager)
-    - |
-      if command -v apt-get >/dev/null 2>&1; then
-        apt-get update -qq && apt-get install -y -qq jq
-      elif command -v apk >/dev/null 2>&1; then
-        apk update && apk add --no-cache jq
-      elif command -v yum >/dev/null 2>&1; then
-        yum install -y -q jq
-      else
-        echo "No known package manager (apt-get/apk/yum) found — please use an image with jq preinstalled"
-        exit 1
-      fi
-    - docker version
-    - mkdir -p results
+    - when: manual
   script:
-    - echo "=== Pulling Aegis image ==="
+    - docker version
+    - mkdir -p "$CI_PROJECT_DIR/results"
     - docker pull playerunknown23/aegis:latest || true
-
-    - echo "=== Running Aegis scanner ==="
     - |
-      docker run --rm \
-        -v "$CI_PROJECT_DIR":/app/target:ro \
-        -v "$CI_PROJECT_DIR/results":/app/results:rw \
-        -e AEGIS_API_KEY="$AEGIS_API_KEY" \
-        -e CONFIG_API_URL="$CONFIG_API_URL" \
-        -e GITLAB_PROJECT="$CI_PROJECT_PATH" \
-        -e GITLAB_REF="$CI_COMMIT_REF_NAME" \
-        -e GITLAB_SHA="$CI_COMMIT_SHA" \
-        playerunknown23/aegis:latest \
-        /app/target \
-        --api-key "$AEGIS_API_KEY" \
-        ${CONFIG_API_URL:+--config-api-url "$CONFIG_API_URL"} \
-        --parallel
-
-    - echo "=== Display scan summary (if present) ==="
-    - |
-      if compgen -G "results/scan_summary_*.json" >/dev/null; then
-        fname=$(ls results/scan_summary_*.json | head -n1)
-        echo "---- Aegis scan summary (from $fname) ----"
-        cat "$fname" | jq -r '
-          "**Summary:**\n" +
-          "- Packages Found (SBOM): \(.summary.packages_found // "N/A") + "\n" +
-          "- Vulnerabilities in Packages (SCA): \(.summary.vulnerabilities_in_packages // "N/A") + "\n" +
-          "- Secrets Found: \(.summary.secrets_found // "N/A") + "\n" +
-          "- Code Vulnerabilities: \(.summary.code_vulnerabilities // "N/A") + "\n\n" +
-          "**Severity Breakdown:**\n" +
-          "- Critical: \(.summary.critical_severity // 0) + "\n" +
-          "- High: \(.summary.high_severity // 0) + "\n" +
-          "- Medium: \(.summary.medium_severity // 0) + "\n" +
-          "- Low: \(.summary.low_severity // 0) + "\n"
-        '
-        # Print quality gate if present
-        QG=$(cat "$fname" | jq -r '.metadata.quality_gate_passed // empty')
-        if [ -n "$QG" ]; then
-          if [ "$QG" = "true" ]; then
-            echo -e "\n✅ Quality Gate: PASSED"
-          else
-            echo -e "\n❌ Quality Gate: FAILED"
-            cat "$fname" | jq -r '.metadata.quality_gate_reasons[]? | "- \(.)"'
-            # Optionally you can exit 1 here to fail pipeline on quality gate fail:
-            # exit 1
-          fi
-        fi
+      if [ -n "$CONFIG_API_URL" ]; then
+        CONFIG_ARG="--config-api-url=$CONFIG_API_URL"
       else
-        echo "No scan_summary_*.json found in results/ — skipping summary"
+        CONFIG_ARG=""
       fi
+    - >
+      docker run --rm
+        -v "$CI_PROJECT_DIR":/app/target:ro
+        -v "$CI_PROJECT_DIR/results":/app/results:rw
+        -e AEGIS_API_KEY="$AEGIS_API_KEY"
+        -e CONFIG_API_URL="$CONFIG_API_URL"
+        playerunknown23/aegis:latest /app/target --api-key "$AEGIS_API_KEY" $CONFIG_ARG --parallel
   artifacts:
-    name: "security-scan-results-$CI_COMMIT_SHORT_SHA"
     paths:
       - results/
-    expire_in: 30 days
+    expire_in: 7 days
     when: always
   allow_failure: false
-  tags: []   # leave empty for GitLab.com shared runners; set tags for specific self-hosted runners
