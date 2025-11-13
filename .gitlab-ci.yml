@@ -6,7 +6,7 @@ variables:
   DOCKER_HOST: "tcp://docker:2375"  # use the DinD service
   DOCKER_DRIVER: "overlay2"       # optional tuning
 
-aegis_minimal_scan:
+aegis_security_scan:
   stage: scan
   image: docker:24.0.5
   services:
@@ -17,22 +17,25 @@ aegis_minimal_scan:
       when: on_success
     - when: manual
   script:
-    - docker version
-    - mkdir -p "$CI_PROJECT_DIR/results"
-    - docker pull playerunknown23/aegis:latest || true
-    - |
-      if [ -n "$CONFIG_API_URL" ]; then
-        CONFIG_ARG="--config-api-url=$CONFIG_API_URL"
-      else
-        CONFIG_ARG=""
-      fi
-    - >
-      docker run --rm
-        -v "$CI_PROJECT_DIR":/app/target:ro
-        -v "$CI_PROJECT_DIR/results":/app/results:rw
-        -e AEGIS_API_KEY="$AEGIS_API_KEY"
-        -e CONFIG_API_URL="$CONFIG_API_URL"
-        playerunknown23/aegis:latest /app/target --api-key "$AEGIS_API_KEY" $CONFIG_ARG --parallel
+  - docker pull playerunknown23/aegis:latest || true
+  - mkdir -p "$CI_PROJECT_DIR/results"
+  - |
+    set -euo pipefail
+    if [ -n "${CONFIG_API_URL:-}" ]; then
+      CONFIG_ARG="--config-api-url=${CONFIG_API_URL}"
+    else
+      CONFIG_ARG=""
+    fi
+
+    echo "Running: docker run --rm playerunknown23/aegis:latest /app/target --api-key ****** $CONFIG_ARG --parallel"
+
+    docker run --rm \
+      -v "$CI_PROJECT_DIR":/app/target:ro \
+      -v "$CI_PROJECT_DIR/results":/app/results:rw \
+      -e AEGIS_API_KEY="$AEGIS_API_KEY" \
+      -e CONFIG_API_URL="$CONFIG_API_URL" \
+      playerunknown23/aegis:latest \
+      /app/target --api-key "$AEGIS_API_KEY" $CONFIG_ARG --parallel
   artifacts:
     paths:
       - results/
