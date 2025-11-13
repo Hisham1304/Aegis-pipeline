@@ -24,6 +24,8 @@ security-scan:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
       when: on_success
     - when: manual   # allows manual trigger in UI
+  before_script:
+    - mkdir -p results
   script:
     - echo "=== Pulling Aegis image ==="
     - docker pull playerunknown23/aegis:latest || true
@@ -43,3 +45,10 @@ security-scan:
         --api-key "$AEGIS_API_KEY" \
         ${CONFIG_API_URL:+--config-api-url "$CONFIG_API_URL"} \
         --parallel
+  artifacts:
+    name: "security-scan-results-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - results/
+    expire_in: 30 days
+    when: always
+  allow_failure: false
