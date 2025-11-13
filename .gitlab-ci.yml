@@ -1,41 +1,41 @@
 stages:
-  - scan
+  - test
 
+# Global variables for Docker-in-Docker
 variables:
-  DOCKER_TLS_CERTDIR: ""            # required when using docker:dind in GitLab CI
-  DOCKER_HOST: "tcp://docker:2375"  # use the DinD service
-  DOCKER_DRIVER: "overlay2"       # optional tuning
+  DOCKER_TLS_CERTDIR: ""            # allow DinD without TLS certs
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_DRIVER: overlay2
 
-aegis_minimal_scan:
-  stage: scan
+security-scan:
+  stage: test
   image: docker:24.0.5
   services:
     - name: docker:24.0.5-dind
       alias: docker
   rules:
-    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop")
+      when: on_success
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
       when: on_success
     - when: manual
   script:
-    - docker version
-    - mkdir -p "$CI_PROJECT_DIR/results"
+    - echo "=== Pulling Aegis image ==="
     - docker pull playerunknown23/aegis:latest || true
+    - echo "=== Running Aegis scanner ==="
     - |
-      if [ -n "$CONFIG_API_URL" ]; then
-        CONFIG_ARG="--config-api-url=$CONFIG_API_URL"
+      set -euo pipefail
+      if [ -n "${CONFIG_API_URL:-}" ]; then
+        CONFIG_ARG="--config-api-url=${CONFIG_API_URL}"
       else
         CONFIG_ARG=""
       fi
-    - >
-      docker run --rm
-        -v "$CI_PROJECT_DIR":/app/target:ro
-        -v "$CI_PROJECT_DIR/results":/app/results:rw
-        -e AEGIS_API_KEY="$AEGIS_API_KEY"
-        -e CONFIG_API_URL="$CONFIG_API_URL"
-        playerunknown23/aegis:latest /app/target --api-key "$AEGIS_API_KEY" $CONFIG_ARG --parallel
-  artifacts:
-    paths:
-      - results/
-    expire_in: 7 days
-    when: always
+      docker run --rm \
+        -v "$CI_PROJECT_DIR":/app/target:ro \
+        -v "$CI_PROJECT_DIR/results":/app/results:rw \
+        -e AEGIS_API_KEY="$AEGIS_API_KEY" \
+        -e CONFIG_API_URL="$CONFIG_API_URL" \
+        playerunknown23/aegis:latest \
+        /app/target --api-key "$AEGIS_API_KEY" $CONFIG_ARG --parallel
   allow_failure: false
+
