@@ -1,11 +1,22 @@
+# .gitlab-ci.yml — minimal Aegis scan (hardcoded credentials for temporary testing)
+stages:
+  - test
+
+# Global variables for Docker-in-Docker
+variables:
+  DOCKER_TLS_CERTDIR: ""            # allow DinD without TLS certs
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_DRIVER: overlay2
+
 security-scan:
-  stage: scan
+  stage: test
   image: docker:24.0.5
   services:
     - name: docker:24.0.5-dind
       alias: docker
   variables:
-    AEGIS_API_KEY: "aegis_LJvDFv7nhDBxNOac7AcWJoVoR9T79t6A"
+    # *** DANGEROUS: credentials in repo (temporary only) ***
+    AEGIS_API_KEY: "aegis_demo_key_5a764f7c5006d71d-REPLACE_WITH_REAL"
     CONFIG_API_URL: "https://config-api-mja3.onrender.com/"
   rules:
     - if: $CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop")
@@ -21,8 +32,17 @@ security-scan:
     - echo "=== Running Aegis scanner ==="
     - |
       set -euo pipefail
-      # compute config arg in same shell
-      if [ -n "${CONFIG_API_URL:-}" ]; then CONFIG_ARG="--config-api-url=${CONFIG_API_URL}"; else CONFIG_ARG=""; fi
+
+      # compute CONFIG_ARG in same shell
+      if [ -n "${CONFIG_API_URL:-}" ]; then
+        CONFIG_ARG="--config-api-url=${CONFIG_API_URL}"
+      else
+        CONFIG_ARG=""
+      fi
+
+      # show sanitized command for logs (mask key)
+      echo "Running: docker run --rm playerunknown23/aegis:latest /app/target --api-key ****** $CONFIG_ARG --parallel"
+
       docker run --rm \
         -v "$CI_PROJECT_DIR":/app/target:ro \
         -v "$CI_PROJECT_DIR/results":/app/results:rw \
@@ -34,4 +54,7 @@ security-scan:
     paths:
       - results/
     when: always
+    expire_in: 30 days
+  allow_failure: false
+
 
