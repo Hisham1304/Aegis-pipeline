@@ -33,7 +33,6 @@ security-scan:
       fi
       docker run --rm \
         -v "$CI_PROJECT_DIR":/app/target:ro \
-        -v "$CI_PROJECT_DIR/results":/app/results:rw \
         -e AEGIS_API_KEY="$AEGIS_API_KEY" \
         -e CONFIG_API_URL="$CONFIG_API_URL" \
         playerunknown23/aegis:latest \
