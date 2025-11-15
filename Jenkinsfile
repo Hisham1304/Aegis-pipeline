@@ -38,7 +38,6 @@ pipeline {
             fi
             docker run --rm \
               -v "${WORKSPACE}:/app/target:ro" \
-              -v "${WORKSPACE}/results:/app/results:rw" \
               -e AEGIS_API_KEY="${AEGIS_API_KEY}" \
               -e CONFIG_API_URL="${CONFIG_API_URL}" \
               -e GITHUB_REPOSITORY="${JOB_NAME}" \
