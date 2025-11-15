@@ -29,16 +29,13 @@ pipeline {
             mkdir -p results
             echo "Pulling Aegis image..."
             docker pull playerunknown23/aegis:latest || true
-
             echo "Running Aegis scanner container..."
             SCANNER_EXIT=0
-
             if [ -n "${CONFIG_API_URL:-}" ]; then
               CONFIG_ARG="--config-api-url=${CONFIG_API_URL}"
             else
               CONFIG_ARG=""
             fi
-
             docker run --rm \
               -v "${WORKSPACE}:/app/target:ro" \
               -v "${WORKSPACE}/results:/app/results:rw" \
@@ -52,7 +49,6 @@ pipeline {
               --api-key "${AEGIS_API_KEY}" \
               ${CONFIG_ARG} \
               --parallel || SCANNER_EXIT=$?
-
             echo "Aegis exit code: $SCANNER_EXIT"
             exit $SCANNER_EXIT
           '''
